@@ -1,2 +1,1 @@
-# sir-lancelot
-Pixel perfect port of 1984 game by Melbourne House for Gameboy
+The main purpose of this repo is to provide fully commented source of a game written in assembler in form of a short tutorial. I'll be focusing on DMG version first. As for now it serves no purpose, so check back in a while.

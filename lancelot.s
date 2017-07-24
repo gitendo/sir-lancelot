@@ -8,7 +8,14 @@ main:
 	di
 	ld	sp,WRAM_END
 	call	init
-_next
+_title
+;	call	read_keypad
+;	ld	a,b
+;	bit	KEY_ST_BIT,a
+;	jp	nz,_Start_BUTTON
+;	jr	_wait
+
+_stage
 	call	prepare_stage
 
 	ld	a,LCDC_ON | CHR_8000 | MAP_9800 | OBJ_16 | OBJ_ON | WIN_ON | WIN_9C00 | BG_ON
@@ -30,58 +37,9 @@ _loop
 
 	call	read_keypad
 
-;	ld	a,b
-	bit	KEY_U_BIT,a
-	jp	nz,_Up_KEY
-	bit	KEY_D_BIT,a
-	jp	nz,_Down_KEY
-	bit	KEY_L_BIT,a
-	jp	nz,_Left_KEY
-	bit	KEY_R_BIT,a
-	jp	nz,_Right_KEY
-	bit	KEY_A_BIT,a
-	jp	nz,_A_BUTTON
-	bit	KEY_B_BIT,a
-	jp	nz,_B_BUTTON
-	bit	KEY_SL_BIT,a
-	jp	nz,_Select_BUTTON
-	bit	KEY_ST_BIT,a
-	jp	nz,_Start_BUTTON
+	call	colis
 	jr	_loop
 
-_Up_KEY
-	jr	_loop
-
-_Down_KEY
-	jr	_loop
-
-_Right_KEY
-	ld	a,(scroll)
-	cp	$60
-	jr	z,_loop
-	inc	a
-	ld	(scroll),a
-	jr	_loop
-
-_Left_KEY
-	ld	a,(scroll)
-	cp	0
-	jr	z,_loop
-	dec	a
-	ld	(scroll),a
-	jr	_loop
-
-_A_BUTTON
-	jr	_loop
-
-_B_BUTTON
-	jr	_loop
-
-_Select_BUTTON
-	jr	_loop
-
-_Start_BUTTON
-	jr	_loop
 
 ;-- helpers
 
@@ -130,7 +88,269 @@ _2
 _3
 	ret
 
+;-------------------------------------------------------------------------------
+colis:
+;-------------------------------------------------------------------------------
+	call	get_pos
+	ld	a,(previous)
+	and	KEY_L | KEY_R | KEY_A
+	ld	(previous),a
+	bit	KEY_L_BIT,a
+	call	nz,move_left
+	ld	a,(previous)		; ugly, fix it!
+	bit	KEY_R_BIT,a
+	call	nz,move_right
+	ld	a,(previous)
+	bit	KEY_A,a
+	call	nz,jump
+	call	fall
+	ret
 
+get_pos:
+	ld	a,(oam_player_yl)	; scy fix not needed
+	sub	16                      ; sprite fix
+	srl	a                       ; /8
+	srl	a
+	srl	a
+	ld	l,a
+	ld	h,0
+	sla	l                       ; *32
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+
+	ld	a,(oam_player_xl)
+	sub	8			; sprite fix
+	ld	b,a
+	ld	a,(SCX)
+	add	a,b                     ; scx fix
+	srl	a                       ; /8
+	srl	a
+	srl	a
+
+	add	a,l
+	jr	nc,_1
+	inc	h
+_1
+	ld	(player_lo),a
+	ld	a,h
+	ld	(player_hi),a	
+	ret
+
+;-------------------------------------------------------------------------------
+move_left:
+;-------------------------------------------------------------------------------
+	ld	a,(oam_player_attrl)	; flip x bit
+	bit	5,a
+	call	nz,player_flip        ; switch sprite halves
+
+	ld	a,(player_lo)
+	ld	l,a
+	ld	a,(player_hi)
+	ld	h,a
+	ld	de,MAP0
+	add	hl,de
+_1
+	ld	a,(STAT)
+	bit	1,a
+	jr	nz,_1
+
+	ld	c,(hl)                  ; tile in 1st row
+	ld	a,32			; next row
+	add	a,l
+	jr	nc,_2
+	inc	h
+_2
+	ld	l,a
+	ld	b,(hl)
+	ld	a,$02
+	cp	b
+	ret	z
+	cp	c
+	ret	z
+
+	ld	a,(oam_player_xl)	; move sprite till middle of the screen
+	cp	$58
+	jr	nc,_3
+
+	ld	a,(scroll)              ; then move window
+	cp	0
+	jr	nz,_4
+_3
+	ld	a,(oam_player_xl)       ; then sprite again
+	cp	$08                     ; left boundary
+	ret	z
+	dec	a
+	ld	(oam_player_xl),a
+	ld	a,(oam_player_xr)
+	dec	a
+	ld	(oam_player_xr),a
+	ret
+
+_4
+	dec	a
+	ld	(scroll),a
+	ret
+
+;-------------------------------------------------------------------------------
+move_right:
+;-------------------------------------------------------------------------------
+	ld	a,(oam_player_attrr)	; flip x bit
+	bit	5,a
+	call	z,player_flip         ; switch sprite halves
+
+	ld	a,(player_lo)
+	ld	l,a
+	ld	a,(player_hi)
+	ld	h,a
+	ld	de,MAP0+2		; right edge cheap fix
+	add	hl,de
+;	inc	hl
+;	inc	hl
+_1
+	ld	a,(STAT)
+	bit	1,a
+	jr	nz,_1
+
+	ld	c,(hl)                  ; tile in 1st row
+	ld	a,32			; next row
+	add	a,l
+	jr	nc,_2
+	inc	h
+_2
+	ld	l,a
+	ld	b,(hl)
+	ld	a,$02
+	cp	b
+	ret	z
+	cp	c
+	ret	z
+
+	ld	a,(oam_player_xr)	; move sprite till middle of the screen
+	cp	$58
+	jr	c,_3
+
+	ld	a,(scroll)              ; then move window
+	cp	$60
+	jr	nz,_4
+_3
+	ld	a,(oam_player_xr)       ; then sprite again
+	cp	$A0                     ; right boundary
+	ret	z
+	inc	a
+	ld	(oam_player_xr),a
+	ld	a,(oam_player_xl)
+	inc	a
+	ld	(oam_player_xl),a
+	ret
+_4
+	inc	a
+	ld	(scroll),a
+	ret
+
+jump:
+	ret
+
+;-------------------------------------------------------------------------------
+fall:
+;-------------------------------------------------------------------------------
+	ld	a,(jump_state)
+	cp	0
+	ret	nz
+
+	ld	a,(oam_player_yl)	; scy fix not needed
+	sub	16                      ; sprite fix
+	srl	a                       ; /8
+	srl	a
+	srl	a
+	ld	l,a
+	ld	h,0
+	sla	l                       ; *32
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+
+	ld	a,(oam_player_xl)
+;	sub	8			; sprite fix
+	ld	b,a
+	ld	a,(SCX)
+	add	a,b                     ; scx fix
+	srl	a                       ; /8
+	srl	a
+	srl	a
+
+	add	a,l
+	jr	nc,_0
+	inc	h
+_0
+	ld	l,a
+
+	ld	a,(oam_player_attrr)	; flip x bit
+	bit	5,a
+	jr	z,_11
+	dec	hl
+_11
+
+
+;	ld	a,(player_lo)
+;	ld	l,a
+;	ld	a,(player_hi)
+;	ld	h,a
+	ld	de,MAP0+64		; bottom edge cheap fix
+	add	hl,de
+_1
+	ld	a,(STAT)
+	bit	1,a
+	jr	nz,_1
+
+	ld	b,(hl)                 ; tile in 1st row
+	inc	l
+	ld	c,(hl)
+	ld	a,$02
+	cp	b
+	ret	z
+	cp	c
+	ret	z
+
+	ld	a,(oam_player_yl)
+	inc	a
+	ld	(oam_player_yl),a
+	ld	a,(oam_player_yr)
+	inc	a
+	ld	(oam_player_yr),a
+	ret
+
+
+;-------------------------------------------------------------------------------
+player_flip:
+;-------------------------------------------------------------------------------
+	ld	hl,oam_player_tilel
+	ld	de,oam_player_tiler
+	ld	b,(hl)
+	ld	a,(de)
+	ld	(hl+),a
+	ld	a,b
+	ld	(de),a
+	inc	e
+	ld	a,(hl)
+	xor	$20
+	ld	(hl),a
+	ld	(de),a
+	ret
+
+	
 ;-------------------------------------------------------------------------------
 animate_foes:
 ;-------------------------------------------------------------------------------
@@ -476,7 +696,44 @@ _4
 
 	call	items_oam
 	call	foes_oam
+	call	player_oam
 
+	ret
+
+;-------------------------------------------------------------------------------
+player_oam:
+;-------------------------------------------------------------------------------
+	ld	hl,player
+	ld	a,(level)
+	sla	a
+	sla	a
+	add	a,l
+	jr	nc,_1
+	inc	h
+_1
+	ld	l,a
+	ld	bc,oam_player_yl
+	ld	de,oam_player_yr
+	ld	a,(hl+)		; y
+;	ld	(player_y),a
+	ld	(bc),a
+	ld	(de),a
+	inc	c
+	inc	e
+	ld	a,(hl+)		; x
+;	ld	(player_x),a
+	ld	(bc),a
+	add	a,8
+	ld	(de),a
+	inc	c
+	inc	e
+	ld	a,4		; tile
+	ld	(bc),a
+	ld	a,6
+	ld	(de),a
+	ld	a,(hl)		; direction
+	or	0
+	call	nz,player_flip
 	ret
 
 ;-------------------------------------------------------------------------------
@@ -531,7 +788,7 @@ foes_oam:
 _1
 	ld	l,a
 	
-	ld	de,$C020
+	ld	de,oam_array+$20
 	ld	b,$10		; starting tile
 	ld	c,4
 _loop
@@ -804,18 +1061,18 @@ read_keypad:
 	or	b
         ld      b,a
 
-	ld	a,(OLD)
+	ld	a,(previous)
 	xor	b
 	and	b
-	ld	(NEW),a
+	ld	(current),a
 	ld	a,b
-	ld	(OLD),a
+	ld	(previous),a
         push    af
 
 	ld	a,$30
         ld      (P1),a
 
-        ld      a,(NEW)
+        ld      a,(current)
         ld      b,a
         pop     af
 	ret
@@ -825,6 +1082,9 @@ read_keypad:
 
 bg:
 	dw	bg9							; level 1
+; y, x, direction (0-left, 1-right), 0
+player:
+	db	$58,$90,$00,$00
 items:
 	dw	itemD,item0,itemE,item5,itemC,itemB,itemA,0		; level 1
 item_xy:
@@ -844,19 +1104,35 @@ hud2:
 		;01234567890123456789
 
 
-
+BANK1	group	$01
+	org	$4000
+	nop
 ;-------------------------------------------------------------------------------
-RAM	group	$01
+RAM	group	$00
 	org	$C000
 ;-------------------------------------------------------------------------------
-oam_array	ds	40*4
+oam_array
+oam_items	ds	8*4
+oam_foes	ds	8*4
+oam_player_yl		ds	1
+oam_player_xl		ds	1
+oam_player_tilel	ds	1
+oam_player_attrl	ds	1
+oam_player_yr		ds	1
+oam_player_xr		ds	1
+oam_player_tiler	ds	1
+oam_player_attrr	ds	1
+		ds	22*4
 foe_array	ds	4*4
 foe_anim_array	ds	4*4
 level		ds	1
+player_hi	ds	1
+player_lo	ds	1
+jump_state	ds	1
 scroll		ds	1
 delay		ds	1
-OLD	ds	1
-NEW	ds	1
+previous	ds	1
+current		ds	1
 time1	ds	1
 time2	ds	1
 time3	ds	1
